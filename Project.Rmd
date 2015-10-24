@@ -1,0 +1,105 @@
+---
+title: "Machine Learning Project"
+author: "Vijay Vaidya"
+date: "Thursday, October 22, 2015"
+output: html_document
+---
+## Executive summary
+The goal of this research is to predict the way the individuals who took part in "Weight Lifting Exercises" (http://groupware.les.inf.puc-rio.br/har) performed their exercise. Following sections desribe exploratory data analysis then decide on the model and finally use the model to predict the *classe* (the exercise quality) on the provided test data set.  
+
+## Exploratory data analysis
+Clean the environment and Load the training data set. Remove the columns that are not applicable to the prediction and keep the ones that matter.
+```{r, echo=TRUE}
+rm(list = ls())
+flist <- dir(path = ".", pattern = "^pml.*training.csv$", ignore.case = TRUE, include.dirs = FALSE)
+inputSet <- read.csv(flist[ 1 ])
+consideredColumns <- c("roll_belt", "pitch_belt", "yaw_belt", "total_accel_belt",
+                      "gyros_belt_x", "gyros_belt_y", "gyros_belt_z",
+                      "accel_belt_x", "accel_belt_y", "accel_belt_z",
+                      "magnet_belt_x", "magnet_belt_y", "magnet_belt_z",
+                      "roll_arm", "pitch_arm","yaw_arm", "total_accel_arm",
+                      "gyros_arm_x", "gyros_arm_y", "gyros_arm_z",
+                      "accel_arm_x", "accel_arm_y", "accel_arm_z",
+                      "magnet_arm_x", "magnet_arm_y", "magnet_arm_z",
+                      "roll_dumbbell", "pitch_dumbbell", "yaw_dumbbell",
+                      "gyros_dumbbell_x", "gyros_dumbbell_y", "gyros_dumbbell_z",
+                      "accel_dumbbell_x", "accel_dumbbell_y", "accel_dumbbell_z",
+                      "magnet_dumbbell_x", "magnet_dumbbell_y", "magnet_dumbbell_z",
+                      "roll_forearm",    "pitch_forearm", "yaw_forearm",
+                      "gyros_forearm_x", "gyros_forearm_y", "gyros_forearm_z",
+                      "accel_forearm_x", "accel_forearm_y", "accel_forearm_z",
+                      "magnet_forearm_x", "magnet_forearm_y", "magnet_forearm_z")
+consideredSet <- inputSet[ , c(consideredColumns, "classe") ]
+```
+
+From the exploratory analysis it looks like there is  higher count for *classe*="A"
+```{r, echo=TRUE}
+library(ggplot2, quietly = TRUE)
+g <- ggplot(data = inputSet) + geom_histogram(aes(x = classe))
+g
+```
+
+## Modeling, cross validation
+Build the data frame of the columns that we have considered from previous section
+```{r, echo=TRUE}
+consideredSet <- inputSet[ , c(consideredColumns, "classe") ]  
+rm(inputSet, flist) # release the memory
+```
+For cross validation run the interations with training data pervent as 30% 50% 60% 75%. Select these three models:
+ - rpart - Recursive Partitioning and Regression Trees  
+ - lda - Linear Discriminant Analysis  
+ - rf - Random Forest 
+
+```{r, echo=TRUE}
+trainPercent <- c(0.3, 0.5, 0.6, 0.75) # percentage of training data
+methods <- c("rpart", "lda", "rf") # models
+myAccuracy <- matrix(nrow = length(methods), ncol = length(trainPercent))
+rownames(myAccuracy) <- methods
+colnames(myAccuracy) <- c("P30Accuracy", "P50Accuracy", "P60Accuracy", "P75Accuracy")
+
+library(caret, quietly = TRUE)
+library(rpart, quietly = TRUE)
+library(MASS, quietly = TRUE)
+library(randomForest, quietly = TRUE)
+
+for(m in 1:length(methods))
+{
+    for(i in 1:length(trainPercent))
+    {
+        set.seed(85931)
+        idx = createDataPartition(y = consideredSet$classe, p = trainPercent[ i ], list = FALSE)
+        trainSet <- consideredSet[ idx, ] 
+        testSet <- consideredSet[ -idx, ]
+        
+        f <- switch(methods[ m ],
+                    "rpart" = train(classe ~ ., method ="rpart", data = trainSet),
+                    "lda" = train(classe ~ ., method ="lda", data = trainSet),
+                    "rf" = randomForest(classe ~ ., data = trainSet)
+                    )
+        testRes <- as.vector(predict(f, newdata = testSet))
+        expectedRes <- as.vector(testSet[ , c("classe") ])
+        res <- testRes == expectedRes
+        myAccuracy[ m, i ] <- length(which(res == TRUE)) / length(res)
+    }
+}
+
+myAccuracy # show the final result indicating which model is the best fit
+
+```
+From the table above it is obvious that the best fit is 'Random Forest'
+## Test cases prediction
+```{r, echo=TRUE}
+# now read the testing data set, predict and write the results to the files
+#
+flist <- dir(path = ".", pattern = "^pml.*testing.csv$", ignore.case = TRUE, include.dirs = FALSE)
+inputSet <- read.csv(flist[ 1 ]);
+predictSet <- inputSet[ , c(consideredColumns, "problem_id") ]
+rm(inputSet, flist)
+
+for(i in 1:nrow(predictSet))
+{
+    r <- as.vector(predict(f, newdata = predictSet[ predictSet$problem_id == i, ]))
+    filename <- paste0("problem_id_",i,".txt")
+    write.table(r[ 1 ], file = filename, quote = FALSE, row.names = FALSE, col.names = FALSE)
+}
+```
